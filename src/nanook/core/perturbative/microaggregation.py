@@ -112,6 +112,7 @@ def _mdav_cluster(x: np.ndarray, k: int) -> np.ndarray:
             break
         # Pair: farthest from the cluster centre forms the next cluster too.
         if remaining.size >= 2 * k:
+            # TODO(REVIEW.md#m2-microaggregation-mdav): canonical MDAV seeds second cluster from arg max d(x_i, x[far_idx]), not the pre-removal centroid.
             d_centroid_2 = np.linalg.norm(x[remaining] - centroid, axis=1)
             far2 = remaining[int(np.argmax(d_centroid_2))]
             d_far2 = np.linalg.norm(x[remaining] - x[far2], axis=1)

@@ -77,6 +77,7 @@ class Pipeline:
     def __init__(self, seed: int | None = None) -> None:
         self.context_: DataContext = DataContext()
         self.steps: list[_Step] = []
+        # TODO(REVIEW.md#m4-pipeline-seed): self.seed is never propagated to per-step RNGs; either spawn substreams in apply() or drop the field.
         self.seed: int | None = seed
 
     def context(

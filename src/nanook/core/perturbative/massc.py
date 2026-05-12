@@ -44,6 +44,8 @@ class MASSC(SDCMethod):
             raise MethodParameterError("massc: fraction must lie in (0, 1]")
 
     def pre_scan(self, df: pl.DataFrame, ctx: DataContext) -> dict:
+        # TODO(REVIEW.md#m3-massc): only step 2 of MASSC is implemented; missing micro-agglomeration / subsampling / calibration.
+        # Also swaps the sensitive column instead of the QI tuple. Either rename this method or extend it.
         qis = list(ctx.quasi_identifiers)
         if not qis:
             raise MethodParameterError("massc: requires non-empty DataContext.quasi_identifiers")

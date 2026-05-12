@@ -43,6 +43,7 @@ class MultiplicativeNoise(SDCMethod):
         return {}
 
     def apply(self, df: pl.DataFrame, ctx: DataContext, params: dict) -> pl.DataFrame:  # noqa: ARG002
+        # TODO(REVIEW.md#m1-multiplicative-noise): Gaussian factor can flip signs; missing log-normal multiplier and Höhne moment rescaling.
         col = self.column
         if col is None or col not in df.columns:
             return df
