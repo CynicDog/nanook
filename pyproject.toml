@@ -1,0 +1,105 @@
+[project]
+name = "nanook"
+version = "0.1.0"
+description = "Blazingly fast privacy engineering and statistical disclosure control."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "nanook contributors" }]
+keywords = ["sdc", "privacy", "k-anonymity", "polars", "pseudonymization"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Security",
+]
+dependencies = [
+    "polars==1.13.1",
+    "pyarrow>=18.0.0",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+nominal-emd = ["scipy>=1.13"]
+dev = [
+    "ruff>=0.15.8",
+    "pyright>=1.1",
+    "pytest>=8",
+    "pytest-doctestplus>=1.2",
+    "hypothesis>=6",
+]
+
+[project.scripts]
+nanook = "nanook.cli:main"
+
+[project.urls]
+Source = "https://github.com/CynicDog/nanook"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nanook"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "F",
+    "E",
+    "W",
+    "I",
+    "D",
+    "UP",
+    "B",
+    "ANN",
+    "PERF",
+    "PIE",
+    "TID",
+    "SIM",
+    "RET",
+    "ARG",
+]
+ignore = [
+    "D100",
+    "D104",
+    "D107",
+    "ANN401",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "ANN", "E501"]
+"src/nanook/_internal/**" = ["D"]
+"src/nanook/core/**" = ["D102"]  # pre_scan / apply / validate_params overrides are documented on SDCMethod
+"src/nanook/metrics/risk/l_diversity.py" = ["E741"]  # `l` is canonical math notation
+"src/nanook/report.py" = ["E741"]  # `l` mirrors the field name on LDiversityReport
+"src/nanook/pipeline.py" = ["E741"]  # `l` is the assess() parameter passed through
+
+[tool.pyright]
+include = ["src/nanook"]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
+reportMissingTypeStubs = false
+reportMissingImports = "warning"
+reportMissingTypeArgument = "none"
+reportArgumentType = "none"     # polars 1.13 stubs return PythonLiteral; we cast through float()
+reportUnknownMemberType = "none"
+reportUnknownVariableType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownLambdaType = "none"
+reportUnknownParameterType = "none"
+
+[tool.pytest.ini_options]
+addopts = ["--doctest-modules", "--strict-markers"]
+testpaths = ["tests", "src/nanook"]
