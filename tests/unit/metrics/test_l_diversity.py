@@ -45,3 +45,21 @@ def test_unknown_mode_raises():
     df = pl.DataFrame({"zip": ["1"], "diag": ["A"]})
     with pytest.raises(MethodParameterError):
         l_diversity(df, qis=["zip"], sensitive="diag", l=2, mode="bogus")  # type: ignore[arg-type]
+
+
+def test_golden_value_l_diversity_entropy_hand_traced():
+    # One equivalence class on zip="1", diag = [A, A, B, B, C].
+    # P = (2/5, 2/5, 1/5). H = -(0.4 ln 0.4 + 0.4 ln 0.4 + 0.2 ln 0.2)
+    #                       ≈ 1.05492.
+    # For l=2 (entropy threshold = ln 2 ≈ 0.6931), passes; for l=3 (threshold
+    # = ln 3 ≈ 1.0986), fails.
+    df = pl.DataFrame(
+        {
+            "zip": ["1"] * 5,
+            "diag": ["A", "A", "B", "B", "C"],
+        }
+    )
+    r2 = l_diversity(df, qis=["zip"], sensitive="diag", l=2, mode="entropy")
+    assert r2.holds
+    r3 = l_diversity(df, qis=["zip"], sensitive="diag", l=3, mode="entropy")
+    assert not r3.holds

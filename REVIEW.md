@@ -28,10 +28,10 @@ under [Rejected claims](#rejected-claims) for audit.
 
 | ID  | Severity | Area                         | One-liner |
 |-----|----------|------------------------------|-----------|
-| M1  | MAJOR    | `multiplicative_noise`       | Gaussian-factor instead of positive log-normal; no moment rescaling. |
-| M2  | MAJOR    | `microaggregation` (MDAV)    | Second cluster seeded from original centroid, not farthest-from-r. |
-| M3  | MAJOR    | `massc`                      | Only step 2 implemented; operates on sensitive column, not the QI tuple. |
-| M4  | MAJOR    | `Pipeline.seed`              | Stored and serialised but never propagated to per-step RNGs. |
+| M1  | RESOLVED | `multiplicative_noise`       | Log-normal multiplier + Höhne moment rescaling now implemented; `intensity` param renamed `sigma_log`. |
+| M2  | RESOLVED | `microaggregation` (MDAV)    | Second-cluster seed switched to `arg max d(x_i, x[far_idx])`; step 2/3 of the pseudocode now visually distinct in code. |
+| M3  | RESOLVED | `massc`                      | Full 4-step pipeline (categorical MDAV → mode-tuple collapse → within-cluster permute → subsample → rake) replaces the previous within-QI swap. |
+| M4  | RESOLVED | `Pipeline.seed`              | `apply` spawns one `SeedSequence` substream per step from `self.seed`; explicit per-step seeds still win. |
 | m1  | MINOR    | `noise_addition`             | Uncorrelated case only. |
 | m2  | MINOR    | `top_bottom_coding`          | `clip` mode only. |
 | m3  | MINOR    | `local_suppression`          | Greedy heuristic only (no ILP). |
@@ -51,7 +51,7 @@ Metrics — `k_anonymity`, `l_diversity` (distinct / entropy / recursive),
 
 ## MAJOR findings
 
-### M1: Multiplicative noise
+### M1: Multiplicative noise — RESOLVED
 
 **Files**
 
@@ -97,9 +97,17 @@ to remove the implication that this is Höhne's multiplicative noise. The
 inline reference at the top of `multiplicative_noise.py:5` should match
 whichever choice is made.
 
+**Resolution**
+
+Canonical Höhne implemented at `multiplicative_noise.py:64-86`. The `intensity`
+param is now `sigma_log`; the `Pipeline.multiplicative_noise` fluent helper is
+updated accordingly. Zeros still short-circuit to identity (documented). Tests:
+`test_multiplicative_noise_preserves_first_two_moments` and
+`test_multiplicative_noise_never_flips_sign_on_positive_input`.
+
 ---
 
-### M2: Microaggregation MDAV
+### M2: Microaggregation MDAV — RESOLVED
 
 **Files**
 
@@ -156,9 +164,18 @@ Replace line 115 with `d_far = np.linalg.norm(x[remaining] - x[far_idx], axis=1)
 and pick `far2 = remaining[int(np.argmax(d_far))]`. The rest of the block
 (nearest-k pick on line 118) is already correct.
 
+**Resolution**
+
+Fixed at `microaggregation.py:93-138` — the second-cluster seed now uses
+`arg max d(x_i, x[far_idx])`, and the loop is split into step-2 (`|U| ≥ 3k`)
+and step-3 (`|U| ≥ 2k`) phases that match the pseudocode line-for-line.
+Test: `test_microaggregation_second_seed_is_farthest_from_first` (drives
+`_mdav_cluster` directly with a hand-crafted 2-D matrix where canonical and
+pre-fix disagree on a swing point's cluster assignment).
+
 ---
 
-### M3: MASSC
+### M3: MASSC — RESOLVED
 
 **Files**
 
@@ -231,9 +248,30 @@ Two acceptable paths:
   categorical distance, substitute on the QI tuple, subsample, calibrate
   through raking. This is a significant rewrite.
 
+**Resolution**
+
+Full 4-step rewrite. New helpers:
+
+- `_internal/categorical_mdav.py` — Hamming-distance MDAV with mode-tuple
+  centroid; carries the M2 second-seed fix.
+- `_internal/raking.py` — iterative proportional fitting for the calibration
+  step.
+
+`massc.py` now: (1) clusters by Hamming MDAV on QI codes and collapses each
+cluster's QI tuple to the per-column mode (this is what delivers k-anonymity
+on the QIs); (2) permutes non-QI columns within each cluster so the
+deterministic original→masked link is broken; (3) subsamples
+`floor(f_sub * n)` records; (4) rakes design weights against the original
+frame's population totals on the calibration variables. The public API now
+takes `k`, `f_sub`, `calibration_vars` (drops `column` and `fraction`); the
+`Pipeline.massc` fluent helper signature changes accordingly. Tests:
+`test_massc_output_is_k_anonymous_on_qis`, `test_massc_subsample_size`,
+`test_massc_weights_sum_to_population_total_per_calibration_cell`,
+`test_massc_substitution_breaks_qi_linkage`.
+
 ---
 
-### M4: Pipeline seed
+### M4: Pipeline seed — RESOLVED
 
 **Files**
 
@@ -268,6 +306,17 @@ In `Pipeline.apply`, derive per-step substreams from `self.seed` using
 currently `None`. Explicit per-step seeds should win — document the
 precedence. Alternative: drop the field entirely and require explicit
 per-step seeds. Either is fine; the current half-state is the worst of both.
+
+**Resolution**
+
+`Pipeline.apply` now spawns one `SeedSequence` substream per step from
+`self.seed` and injects each into the corresponding `effective_params["seed"]`
+when (and only when) the step has no explicit `seed=`. Explicit per-step
+seeds win. Precedence is documented in `Pipeline.__init__`. Tests:
+`test_pipeline_with_seed_is_deterministic_without_per_step_seeds`,
+`test_pipeline_seed_changes_propagate_to_stochastic_steps`,
+`test_explicit_step_seed_wins_over_pipeline_seed` (in
+`tests/integration/test_pipeline_reproducibility.py`).
 
 ---
 
@@ -418,9 +467,17 @@ Helpers:
 ## Test backlog
 
 These reproduce as findings of their own — the user explicitly asked
-coverage to be in scope. Each item lists the target test file.
+coverage to be in scope. Each item lists the target test file. All five
+are now landed; the bonus item below is an incidental bug uncovered by T2.
 
-### T1
+### T0 (incidental, RESOLVED)
+
+`_internal/grouping.py:per_record_class_size` used a left-join on the QI
+columns, which silently drops null-keyed rows because SQL null-equality is
+unknown. T2's null-handling tests exposed this; the helper was rewritten
+to use `pl.len().over(qis)`, which partitions nulls together.
+
+### T1 — RESOLVED
 
 - [ ] Add hand-computed golden-value tests, one per metric, against examples in the handbook.
 - Today: `tests/unit/test_lambda_measure.py:17-21` (`handbook_example_one_tenth`) is the only one.
@@ -431,9 +488,9 @@ coverage to be in scope. Each item lists the target test file.
   - `tests/unit/test_l_diversity.py` — entropy against `H = -Σ p log p`.
   - `tests/unit/test_t_closeness.py` — ordinal EMD against a 3-point support summed by hand.
 
-### T2
+### T2 — RESOLVED
 
-- [ ] Null-handling tests for QIs and the sensitive column.
+- [x] Null-handling tests for QIs and the sensitive column.
 - `_internal/grouping.py:11-17` claims to handle nulls but no test
   asserts it. Add `tests/unit/test_grouping.py` (or extend the existing
   metric tests) with frames where:
@@ -442,9 +499,9 @@ coverage to be in scope. Each item lists the target test file.
   - the sensitive column has nulls (does `l_diversity.distinct` exclude
     them per the pseudocode convention?).
 
-### T3
+### T3 — RESOLVED
 
-- [ ] Method ↔ native-metric round-trip integration tests.
+- [x] Method ↔ native-metric round-trip integration tests.
 - Already partially exists: `tests/unit/test_perturbative.py:77-82`
   asserts microaggregation → k-anonymity. Extend:
   - `local_suppression` → `k_anonymity` (holds at `target_k`).
@@ -453,18 +510,18 @@ coverage to be in scope. Each item lists the target test file.
   - `noise_addition` → `lambda_measure` (monotonic in `intensity`).
 - Add as parametrised tests in `tests/integration/test_method_metric_pairs.py`.
 
-### T4
+### T4 — RESOLVED
 
-- [ ] Property-based tests with `hypothesis` (already in dev extras,
+- [x] Property-based tests with `hypothesis` (already in dev extras,
   `pyproject.toml:32`):
   - multiset preservation for `data_swapping` and `rank_swapping`,
   - `sampling(fraction=1.0)` is identity,
   - `noise_addition` `λ` is monotonically non-decreasing in `intensity`,
   - `microaggregation` output is k-anonymous for every `k ∈ [2, 10]`.
 
-### T5
+### T5 — RESOLVED
 
-- [ ] Pipeline reproducibility integration test.
+- [x] Pipeline reproducibility integration test.
 - Build a `Pipeline` from a JSON payload, apply it twice on the same
   input, assert frame equality. This test should pass *only* after [M4](#m4-pipeline-seed)
   is resolved — wire it in deliberately as a regression for that fix.

@@ -97,33 +97,48 @@ def _mdav_cluster(x: np.ndarray, k: int) -> np.ndarray:
     remaining = np.arange(n)
     cluster_id = 0
 
+    # Step 2: while |U| >= 3k, form two clusters per pass — one seeded from
+    # the centroid, and one seeded from the first seed (farthest-from-r).
+    while remaining.size >= 3 * k:
+        r_idx = _arg_max_distance(x, remaining, x[remaining].mean(axis=0))
+        remaining, cluster_id = _form_cluster_at(x, remaining, k, r_idx, assignment, cluster_id)
+
+        # Canonical MDAV (Domingo-Ferrer & Mateo-Sanz 2002, step 2): the second
+        # cluster is seeded from the point farthest from `x_r`, not from the
+        # pre-removal centroid.
+        s_idx = _arg_max_distance(x, remaining, x[r_idx])
+        remaining, cluster_id = _form_cluster_at(x, remaining, k, s_idx, assignment, cluster_id)
+
+    # Step 3: while |U| >= 2k, form only the centroid-extreme cluster.
     while remaining.size >= 2 * k:
-        centroid = x[remaining].mean(axis=0)
-        d_centroid = np.linalg.norm(x[remaining] - centroid, axis=1)
-        far_idx = remaining[int(np.argmax(d_centroid))]
-        # Cluster of `k` records closest to the farthest point.
-        d_far = np.linalg.norm(x[remaining] - x[far_idx], axis=1)
-        nearest = remaining[np.argsort(d_far)[:k]]
-        assignment[nearest] = cluster_id
-        cluster_id += 1
-        remaining = np.array([r for r in remaining if r not in set(nearest.tolist())], dtype=np.int64)
+        r_idx = _arg_max_distance(x, remaining, x[remaining].mean(axis=0))
+        remaining, cluster_id = _form_cluster_at(x, remaining, k, r_idx, assignment, cluster_id)
 
-        if remaining.size < 2 * k:
-            break
-        # Pair: farthest from the cluster centre forms the next cluster too.
-        if remaining.size >= 2 * k:
-            # TODO(REVIEW.md#m2-microaggregation-mdav): canonical MDAV seeds second cluster from arg max d(x_i, x[far_idx]), not the pre-removal centroid.
-            d_centroid_2 = np.linalg.norm(x[remaining] - centroid, axis=1)
-            far2 = remaining[int(np.argmax(d_centroid_2))]
-            d_far2 = np.linalg.norm(x[remaining] - x[far2], axis=1)
-            nearest2 = remaining[np.argsort(d_far2)[:k]]
-            assignment[nearest2] = cluster_id
-            cluster_id += 1
-            remaining = np.array([r for r in remaining if r not in set(nearest2.tolist())], dtype=np.int64)
-
+    # Step 4: residual (|U| < 2k but >= 0) becomes one final cluster.
     if remaining.size:
         assignment[remaining] = cluster_id
     return assignment
+
+
+def _arg_max_distance(x: np.ndarray, remaining: np.ndarray, anchor: np.ndarray) -> int:
+    """Return the index of the remaining row farthest (Euclidean) from ``anchor``."""
+    return int(remaining[int(np.argmax(np.linalg.norm(x[remaining] - anchor, axis=1)))])
+
+
+def _form_cluster_at(
+    x: np.ndarray,
+    remaining: np.ndarray,
+    k: int,
+    seed_idx: int,
+    assignment: np.ndarray,
+    cluster_id: int,
+) -> tuple[np.ndarray, int]:
+    """Form a cluster from the ``k`` remaining rows nearest to ``x[seed_idx]``."""
+    d_seed = np.linalg.norm(x[remaining] - x[seed_idx], axis=1)
+    nearest = remaining[np.argsort(d_seed)[:k]]
+    assignment[nearest] = cluster_id
+    removed_set = set(nearest.tolist())
+    return np.array([r for r in remaining if r not in removed_set], dtype=np.int64), cluster_id + 1
 
 
 def _means_per_cluster(x: np.ndarray, assignment: np.ndarray) -> list[np.ndarray]:

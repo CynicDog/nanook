@@ -31,3 +31,15 @@ def test_ordinal_requires_numeric_sensitive():
     df = pl.DataFrame({"zip": ["1"], "x": ["A"]})
     with pytest.raises(UnsupportedDtypeError):
         t_closeness(df, qis=["zip"], sensitive="x", t=0.2, support="ordinal")
+
+
+def test_golden_value_t_closeness_two_point_ordinal():
+    # Population x = [0, 0, 1, 1]. Sorted support = [0, 1], Δ = 1.
+    # F_pop(0) = 0.5, F_pop(1) = 1.0.
+    # Class A: x = [0, 0]. F_A(0) = 1.0. Interior boundary at 0 contributes
+    #   |F_A(0) - F_pop(0)| * Δ = |1.0 - 0.5| * 1 = 0.5.
+    # Class B: x = [1, 1]. F_B(0) = 0.0. Contributes |0.0 - 0.5| * 1 = 0.5.
+    # max EMD over classes = 0.5.
+    df = pl.DataFrame({"zip": ["A", "A", "B", "B"], "x": [0.0, 0.0, 1.0, 1.0]})
+    r = t_closeness(df, qis=["zip"], sensitive="x", t=0.1)
+    assert r.max_emd == pytest.approx(0.5, abs=1e-9)
