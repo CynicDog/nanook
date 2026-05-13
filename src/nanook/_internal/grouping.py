@@ -18,7 +18,9 @@ def equivalence_class_sizes(df: pl.DataFrame, qis: Sequence[str]) -> pl.DataFram
 
 
 def per_record_class_size(df: pl.DataFrame, qis: Sequence[str]) -> pl.Series:
-    """Return a Series aligned with ``df`` giving each record's equivalence-class size."""
-    sizes = equivalence_class_sizes(df, qis)
-    joined = df.select(qis).join(sizes, on=list(qis), how="left")
-    return joined.get_column("_nk_class_size")
+    """Return a Series aligned with ``df`` giving each record's equivalence-class size.
+
+    Uses a window function so null-keyed records group together — a join on
+    ``qis`` would drop them because SQL null-equality is unknown.
+    """
+    return df.select(pl.len().over(list(qis)).alias("_nk_class_size")).get_column("_nk_class_size")

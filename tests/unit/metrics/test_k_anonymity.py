@@ -51,3 +51,15 @@ def test_sample_uniques_counts_singleton_classes():
     df = pl.DataFrame({"x": [1, 1, 2, 3]})
     r = k_anonymity(df, qis=["x"], k=2)
     assert r.sample_uniques == 2
+
+
+def test_golden_value_k_anonymity_hand_traced():
+    # 6 rows, single QI = z. Classes: {"1": 3, "2": 2, "3": 1}.
+    # k=3 → classes "2" and "3" violate. 2 + 1 = 3 records violate.
+    # sample_uniques counts singleton classes: only "3" → 1.
+    df = pl.DataFrame({"z": ["1", "1", "1", "2", "2", "3"]})
+    r = k_anonymity(df, qis=["z"], k=3)
+    assert not r.holds
+    assert r.violations == 3
+    assert r.violation_rate == pytest.approx(0.5)
+    assert r.sample_uniques == 1

@@ -66,14 +66,14 @@ def test_every_registered_method_executes_on_a_toy_dataset():
         "global_recoding": {"bins": [0.0, 4.0, 8.0]},
         "local_suppression": {"target_k": 2},
         "noise_addition": {"intensity": 0.1, "seed": 1},
-        "multiplicative_noise": {"intensity": 0.1, "seed": 1},
+        "multiplicative_noise": {"sigma_log": 0.1, "seed": 1},
         "rounding": {"base": 1.0},
         "rank_swapping": {"window_pct": 0.25, "seed": 1},
         "data_swapping": {"fraction": 0.5, "seed": 1},
         "microaggregation": {"k": 2},
         "resampling": {"b": 4, "seed": 1},
         "pram": {"retention": 0.7, "seed": 1},
-        "massc": {"fraction": 0.5, "seed": 1},
+        "massc": {"k": 2, "f_sub": 0.75, "seed": 1},
     }
     numeric_only = {
         "top_bottom_coding",
@@ -91,10 +91,10 @@ def test_every_registered_method_executes_on_a_toy_dataset():
         column = None
         if name in numeric_only:
             column = "a"
-        elif name in {"pram", "massc"}:
+        elif name == "pram":
             column = "b"
         out, _ = _engine_two_pass(name, column, params, df, ctx)
-        if name == "sampling":
+        if name in {"sampling", "massc"}:
             assert out.height <= df.height
         else:
             assert out.height == df.height

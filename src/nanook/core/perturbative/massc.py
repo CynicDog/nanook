@@ -1,9 +1,21 @@
-"""MASSC: Micro Agglomerative Statistical Sub-category Coding — categorical perturbation by group.
+"""MASSC: Micro Agglomeration, Substitution, Subsampling, Calibration (Singh, Yu & Dunteman 2003).
 
-Records are first grouped on the quasi-identifiers, then within each group a
-random subset of cells in the sensitive column is swapped with another cell
-in the same group. This preserves both the group-level distribution and the
-quasi-identifier integrity while breaking record-level linkability.
+Four-step categorical protection on the quasi-identifier tuple:
+
+1. **Micro-agglomeration** clusters records into groups of size ``>= k`` via
+   Hamming-distance MDAV on the QI tuple, yielding k-anonymous groups.
+2. **Substitution** replaces each record's QI tuple with that of a randomly
+   chosen cluster-mate, breaking the deterministic original→masked link
+   while preserving the within-cluster distribution.
+3. **Subsampling** retains ``floor(f_sub * n)`` records without replacement,
+   adding an extra inclusion-uncertainty layer.
+4. **Calibration** rakes design weights so the weighted marginals on the
+   calibration variables match the original population totals.
+
+The output frame has ``floor(f_sub * n)`` rows and one extra column carrying
+the calibration weights. Utility metrics that assume equal-sized original
+and protected frames (lambda, IL1s) are not meaningful against this output;
+analysts should consume the calibration weights.
 
 Reference: pseudonymization-proposal/pseudo_code/sdc_methods/perturbative/massc.md.
 """
@@ -12,8 +24,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import numpy as np
 import polars as pl
 
+from nanook._internal import categorical_mdav, raking
 from nanook._internal.rng import generator
 from nanook.core._base import SDCMethod
 from nanook.core._registry import register_method
@@ -27,10 +41,15 @@ __all__ = ["MASSC"]
 
 @register_method
 class MASSC(SDCMethod):
-    """Swap ``self.column`` values within quasi-identifier groups, perturbing ``fraction`` of records.
+    """Run the canonical four-step MASSC on the context's quasi-identifiers.
 
     Params:
-        fraction: Fraction of in-group cells to swap, in ``(0, 1]``.
+        k: Minimum cluster size for micro-agglomeration (``>= 2``).
+        f_sub: Subsample fraction in ``(0, 1]``.
+        calibration_vars: Columns to calibrate weighted marginals on. Defaults
+            to the QI list when ``None``. Calibration columns are sourced
+            from the substituted frame, so non-QI calibration variables must
+            survive substitution unchanged.
         seed: Optional integer seed.
     """
 
@@ -39,52 +58,118 @@ class MASSC(SDCMethod):
 
     @classmethod
     def validate_params(cls, params: dict) -> None:
-        f = float(params.get("fraction", 0.5))
-        if not 0.0 < f <= 1.0:
-            raise MethodParameterError("massc: fraction must lie in (0, 1]")
+        if int(params.get("k", 5)) < 2:
+            raise MethodParameterError("massc: k must be >= 2")
+        f_sub = float(params.get("f_sub", 0.8))
+        if not 0.0 < f_sub <= 1.0:
+            raise MethodParameterError("massc: f_sub must lie in (0, 1]")
 
     def pre_scan(self, df: pl.DataFrame, ctx: DataContext) -> dict:
-        # TODO(REVIEW.md#m3-massc): only step 2 of MASSC is implemented; missing micro-agglomeration / subsampling / calibration.
-        # Also swaps the sensitive column instead of the QI tuple. Either rename this method or extend it.
         qis = list(ctx.quasi_identifiers)
         if not qis:
             raise MethodParameterError("massc: requires non-empty DataContext.quasi_identifiers")
-        col = self.column
-        if col is None:
-            raise MethodParameterError("massc: column is required")
-        if col not in df.columns:
-            raise MethodParameterError(f"massc: column {col!r} not in frame")
-
-        fraction = float(self.params.get("fraction", 0.5))
+        k = int(self.params.get("k", 5))
+        f_sub = float(self.params.get("f_sub", 0.8))
+        cal_vars = list(self.params.get("calibration_vars") or qis)
         rng = generator(self.params.get("seed"))
 
-        # Build per-group row-index lists once during pre-scan; apply does only the swap.
-        rows_by_group: dict[tuple, list[int]] = {}
-        for i, row in enumerate(df.select(qis).iter_rows(named=True)):
-            key = tuple(row[c] for c in qis)
-            rows_by_group.setdefault(key, []).append(i)
+        n = df.height
+        if n < 2 * k:
+            raise MethodParameterError(f"massc: frame must have >= 2*k = {2 * k} rows; got {n}")
 
-        swaps: list[tuple[int, int]] = []
-        for indices in rows_by_group.values():
-            m = len(indices)
-            if m < 2:
-                continue
-            n_swap = max(2, int(m * fraction))
-            if n_swap % 2 == 1:
-                n_swap -= 1
-            picked = rng.choice(indices, size=n_swap, replace=False).tolist()
-            rng.shuffle(picked)
-            swaps.extend((picked[i], picked[i + 1]) for i in range(0, n_swap, 2))
-        return {"swaps": swaps, "column": col}
+        # Step 1: micro-agglomeration. Cluster by Hamming MDAV on QI codes,
+        # then collapse each cluster's QI tuple to the per-column mode `q_g`
+        # — this is what gives the output its k-anonymity on the QIs.
+        codes = _encode_qi_codes(df, qis)
+        assignment = categorical_mdav.assign(codes, k=k)
+
+        qi_representative: dict[str, np.ndarray] = {}
+        for c in qis:
+            values = df.get_column(c).to_numpy()
+            collapsed = values.copy()
+            for cluster_id in np.unique(assignment):
+                members = np.where(assignment == cluster_id)[0]
+                vals, counts = np.unique(values[members], return_counts=True)
+                collapsed[members] = vals[int(np.argmax(counts))]
+            qi_representative[c] = collapsed
+
+        # Step 2: within-cluster row permutation on the non-QI columns.
+        # After step 1, the QI tuple is constant within each cluster, so the
+        # pseudocode's "x_{i,K} := x_{j,K}" is a no-op on QIs. We permute the
+        # non-QI columns so each surviving record is paired with a random
+        # cluster-mate's other-column values — preserving the within-cluster
+        # joint distribution while breaking the deterministic record link.
+        non_qi_cols = [c for c in df.columns if c not in qis]
+        row_permutation = np.arange(n, dtype=np.int64)
+        if non_qi_cols:
+            for cluster_id in np.unique(assignment):
+                members = np.where(assignment == cluster_id)[0]
+                row_permutation[members] = rng.permutation(members)
+
+        # Step 3: subsample n_sub = floor(f_sub * n) without replacement.
+        n_sub = max(1, int(np.floor(f_sub * n)))
+        subsample_idx = np.sort(rng.choice(n, size=n_sub, replace=False))
+
+        # Step 4: rake design weights against the population totals computed
+        # from the original frame.
+        targets = []
+        for c in cal_vars:
+            counts = df.get_column(c).value_counts(sort=False)
+            value_col, count_col = counts.columns[0], counts.columns[1]
+            targets.append({row[value_col]: row[count_col] for row in counts.iter_rows(named=True)})
+
+        post_sub_cols = {}
+        for c in cal_vars:
+            if c in qis:
+                post_sub_cols[c] = qi_representative[c][subsample_idx]
+            else:
+                source_values = df.get_column(c).to_numpy()
+                post_sub_cols[c] = source_values[row_permutation][subsample_idx]
+        post_sub_frame = pl.DataFrame(post_sub_cols)
+
+        design_weight = np.full(n_sub, n / n_sub, dtype=np.float64)
+        weights = raking.rake(post_sub_frame, design_weight, targets, cal_vars)
+
+        return {
+            "qis": qis,
+            "non_qi_cols": non_qi_cols,
+            "qi_representative": {c: arr.tolist() for c, arr in qi_representative.items()},
+            "row_permutation": row_permutation.tolist(),
+            "subsample_idx": subsample_idx.tolist(),
+            "weights": weights.tolist(),
+            "weights_col": ctx.weights or "weight",
+        }
 
     def apply(self, df: pl.DataFrame, ctx: DataContext, params: dict) -> pl.DataFrame:  # noqa: ARG002
-        col = params["column"]
-        if col not in df.columns:
-            return df
-        swaps: list[tuple[int, int]] = params.get("swaps", [])
-        if not swaps:
-            return df
-        values = df.get_column(col).to_list()
-        for a, b in swaps:
-            values[a], values[b] = values[b], values[a]
-        return df.with_columns(pl.Series(col, values, dtype=df.schema[col]))
+        qis: list[str] = params["qis"]
+        non_qi_cols: list[str] = params["non_qi_cols"]
+        qi_representative: dict[str, list] = params["qi_representative"]
+        row_permutation = np.asarray(params["row_permutation"], dtype=np.int64)
+        sub_idx = np.asarray(params["subsample_idx"], dtype=np.int64)
+        weights = params["weights"]
+        weights_col = params["weights_col"]
+
+        substituted = df
+        for c in qis:
+            substituted = substituted.with_columns(pl.Series(c, qi_representative[c], dtype=df.schema[c]))
+        for c in non_qi_cols:
+            original = df.get_column(c).to_numpy()
+            substituted = substituted.with_columns(
+                pl.Series(c, original[row_permutation], dtype=df.schema[c])
+            )
+
+        out = substituted[sub_idx.tolist()]
+        return out.with_columns(pl.Series(weights_col, weights, dtype=pl.Float64))
+
+
+def _encode_qi_codes(df: pl.DataFrame, qis: list[str]) -> np.ndarray:
+    """Factorise each QI column to integer codes; stack into an (n, p) matrix."""
+    n = df.height
+    codes = np.empty((n, len(qis)), dtype=np.int64)
+    for j, c in enumerate(qis):
+        values = df.get_column(c).to_numpy()
+        # `np.unique(..., return_inverse=True)` is stable across dtypes;
+        # numeric, string, and boolean QIs all encode cleanly.
+        _, inverse = np.unique(values, return_inverse=True)
+        codes[:, j] = inverse
+    return codes

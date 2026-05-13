@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self
 
+import numpy as np
+
 from nanook.context import DataContext
 from nanook.core._registry import get_method
 from nanook.exceptions import MethodParameterError
@@ -75,9 +77,16 @@ class Pipeline:
     VERSION = 1
 
     def __init__(self, seed: int | None = None) -> None:
+        """Build an empty pipeline.
+
+        ``seed``, if set, seeds every stochastic step that does not declare
+        its own ``seed=`` parameter; per-step ``seed=`` values still win when
+        present. Independent substreams per step are derived via
+        :class:`numpy.random.SeedSequence` so step order deterministically
+        maps to per-step seeds without any two steps sharing entropy.
+        """
         self.context_: DataContext = DataContext()
         self.steps: list[_Step] = []
-        # TODO(REVIEW.md#m4-pipeline-seed): self.seed is never propagated to per-step RNGs; either spawn substreams in apply() or drop the field.
         self.seed: int | None = seed
 
     def context(
@@ -140,9 +149,9 @@ class Pipeline:
         """Add additive Gaussian noise to ``column``, scaled to its standard deviation."""
         return self.step("noise_addition", column=column, intensity=intensity, seed=seed)
 
-    def multiplicative_noise(self, column: str, *, intensity: float = 0.05, seed: int | None = None) -> Self:
-        """Scale ``column`` by ``1 + N(0, intensity)``; zero cells stay zero."""
-        return self.step("multiplicative_noise", column=column, intensity=intensity, seed=seed)
+    def multiplicative_noise(self, column: str, *, sigma_log: float = 0.1, seed: int | None = None) -> Self:
+        """Scale ``column`` by a log-normal multiplier with Höhne moment rescaling; zeros stay zero."""
+        return self.step("multiplicative_noise", column=column, sigma_log=sigma_log, seed=seed)
 
     def rounding(
         self, column: str, *, base: float = 1.0, random_within_bin: bool = False, seed: int | None = None
@@ -176,9 +185,22 @@ class Pipeline:
         """Apply a categorical PRAM transition to ``column`` with the given retention probability."""
         return self.step("pram", column=column, retention=retention, seed=seed)
 
-    def massc(self, column: str, *, fraction: float = 0.5, seed: int | None = None) -> Self:
-        """Swap ``column`` values within quasi-identifier groups."""
-        return self.step("massc", column=column, fraction=fraction, seed=seed)
+    def massc(
+        self,
+        *,
+        k: int = 5,
+        f_sub: float = 0.8,
+        calibration_vars: list[str] | None = None,
+        seed: int | None = None,
+    ) -> Self:
+        """Run the four-step MASSC (micro-agglomeration, QI substitution, subsampling, calibration)."""
+        return self.step(
+            "massc",
+            k=k,
+            f_sub=f_sub,
+            calibration_vars=calibration_vars,
+            seed=seed,
+        )
 
     def to_dict(self) -> dict:
         """Serialise the pipeline to a JSON-friendly dict. Inverse of `from_dict`."""
@@ -225,12 +247,24 @@ class Pipeline:
         instantiated with the step's ``column`` and ``params``, pre-scanned
         when ``requires_pre_scan`` is set, and applied. Unknown method names
         raise `MethodParameterError` from the registry.
+
+        When ``self.seed`` is set, independent substreams are spawned for
+        each step via :class:`numpy.random.SeedSequence` and injected into
+        any step whose own ``seed=`` is ``None``. Explicit per-step seeds
+        always win.
         """
         self.context_.validate(df)
+        if self.seed is not None and self.steps:
+            substreams = np.random.SeedSequence(self.seed).spawn(len(self.steps))
+        else:
+            substreams = [None] * len(self.steps)
         out = df
-        for step in self.steps:
+        for step, ss in zip(self.steps, substreams, strict=True):
             cls = get_method(step.method)
-            instance = cls(column=step.column, params=step.params)
+            effective_params = dict(step.params)
+            if effective_params.get("seed") is None and ss is not None:
+                effective_params["seed"] = int(ss.generate_state(1, dtype=np.uint32)[0])
+            instance = cls(column=step.column, params=effective_params)
             params = instance.pre_scan(out, self.context_) if cls.requires_pre_scan else {}
             out = instance.apply(out, self.context_, params)
         return out
