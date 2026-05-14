@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 
 from nanook.core._base import SDCMethod
-from nanook.core._registry import register_method
+from nanook.core._schema import ParamSchema, schema
 from nanook.exceptions import MethodParameterError
 
 if TYPE_CHECKING:
@@ -27,7 +27,53 @@ if TYPE_CHECKING:
 __all__ = ["GlobalRecoding"]
 
 
-@register_method
+@schema(
+    display_name="Global Recoding",
+    category="Non-perturbative",
+    applicable_dtypes=("ANY",),
+    description=(
+        "Replace values with coarser groupings. Continuous columns are cut at "
+        "``bins``; categorical columns are rewritten through a user-supplied "
+        "``mapping``. Provide exactly one of the two."
+    ),
+    params=(
+        ParamSchema(
+            name="bins",
+            display_name="Cut Points (continuous)",
+            param_type="LIST",
+            default=None,
+            required=False,
+            description=(
+                "Strictly increasing list of numeric cut-points [c_0, …, c_M] "
+                "defining M left-closed, right-open intervals."
+            ),
+        ),
+        ParamSchema(
+            name="label_mode",
+            display_name="Label Mode",
+            param_type="CODE",
+            default="index",
+            required=False,
+            code_options=(
+                {"value": "index", "label": "Index"},
+                {"value": "midpoint", "label": "Midpoint"},
+                {"value": "label", "label": "Interval label"},
+            ),
+            description="How to label each interval when `bins` is set.",
+        ),
+        ParamSchema(
+            name="mapping",
+            display_name="Value Mapping (categorical)",
+            param_type="MAP",
+            default=None,
+            required=False,
+            description=(
+                "Original-value → coarser-value dictionary. Keys not present "
+                "in the column pass through unchanged."
+            ),
+        ),
+    ),
+)
 class GlobalRecoding(SDCMethod):
     """Map ``self.column`` through a publishable recoding rule.
 

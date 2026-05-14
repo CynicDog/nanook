@@ -15,7 +15,7 @@ import polars as pl
 
 from nanook._internal.rng import generator
 from nanook.core._base import SDCMethod
-from nanook.core._registry import register_method
+from nanook.core._schema import ParamSchema, schema
 from nanook.exceptions import MethodParameterError
 
 if TYPE_CHECKING:
@@ -24,7 +24,34 @@ if TYPE_CHECKING:
 __all__ = ["DataSwapping"]
 
 
-@register_method
+@schema(
+    display_name="Data Swapping",
+    category="Perturbative",
+    applicable_dtypes=("ANY",),
+    description=(
+        "Swap values for randomly chosen pairs of rows. Unlike rank-swapping the "
+        "pairing is uniform across the whole column, so every original value "
+        "still appears in the output."
+    ),
+    params=(
+        ParamSchema(
+            name="fraction",
+            display_name="Swap Fraction",
+            param_type="FLOAT",
+            default=0.1,
+            required=True,
+            description="Proportion of rows to involve in swaps, in (0, 1].",
+        ),
+        ParamSchema(
+            name="seed",
+            display_name="Random Seed",
+            param_type="INT",
+            default=None,
+            required=False,
+            description="Optional integer seed for reproducibility.",
+        ),
+    ),
+)
 class DataSwapping(SDCMethod):
     """Swap ``self.column`` values between ``fraction`` of randomly paired rows.
 

@@ -18,7 +18,7 @@ import polars as pl
 
 from nanook._internal.rng import generator
 from nanook.core._base import SDCMethod
-from nanook.core._registry import register_method
+from nanook.core._schema import ParamSchema, schema
 from nanook.exceptions import MethodParameterError
 
 if TYPE_CHECKING:
@@ -27,7 +27,48 @@ if TYPE_CHECKING:
 __all__ = ["PRAM"]
 
 
-@register_method
+@schema(
+    display_name="PRAM",
+    category="Perturbative",
+    applicable_dtypes=("STRING",),
+    description=(
+        "Post-Randomisation Method for categorical columns. Each cell is "
+        "rewritten through a Markov transition matrix — either the supplied "
+        "one, or one built during pre-scan to keep marginals invariant."
+    ),
+    params=(
+        ParamSchema(
+            name="retention",
+            display_name="Retention",
+            param_type="FLOAT",
+            default=0.8,
+            required=True,
+            description=(
+                "Probability of keeping the original value (diagonal entry), "
+                "in [0, 1]. Ignored when ``transition`` is supplied explicitly."
+            ),
+        ),
+        ParamSchema(
+            name="transition",
+            display_name="Transition Matrix",
+            param_type="MAP",
+            default=None,
+            required=False,
+            description=(
+                "Optional explicit categories × categories row-stochastic matrix. "
+                "When supplied, ``retention`` is ignored."
+            ),
+        ),
+        ParamSchema(
+            name="seed",
+            display_name="Random Seed",
+            param_type="INT",
+            default=None,
+            required=False,
+            description="Optional integer seed for reproducibility.",
+        ),
+    ),
+)
 class PRAM(SDCMethod):
     """Apply a per-cell Markov transition to ``self.column``.
 

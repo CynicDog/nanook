@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 
 from nanook.core._base import SDCMethod
-from nanook.core._registry import register_method
+from nanook.core._schema import ParamSchema, schema
 from nanook.exceptions import MethodParameterError
 
 if TYPE_CHECKING:
@@ -23,7 +23,46 @@ if TYPE_CHECKING:
 __all__ = ["LocalSuppression"]
 
 
-@register_method
+@schema(
+    display_name="Local Suppression",
+    category="Non-perturbative",
+    applicable_dtypes=("ANY",),
+    description=(
+        "Null cells in the configured identifier columns until every record's "
+        "masked equivalence class has at least ``target_k`` members. The rule "
+        "ignores any per-step column — it operates on every column flagged as "
+        "Identifier."
+    ),
+    params=(
+        ParamSchema(
+            name="target_k",
+            display_name="Target k",
+            param_type="INT",
+            default=5,
+            required=True,
+            description="Anonymity threshold to reach (>= 2).",
+        ),
+        ParamSchema(
+            name="cost_priority",
+            display_name="Column Cost Priority",
+            param_type="MAP",
+            default=None,
+            required=False,
+            description=(
+                "Optional column → cost mapping. Higher values discourage "
+                "suppression on that column. Defaults to 1.0 where absent."
+            ),
+        ),
+        ParamSchema(
+            name="max_iterations",
+            display_name="Max Iterations",
+            param_type="INT",
+            default=None,
+            required=False,
+            description="Safety cap on the suppression loop. Defaults to (rows × identifier-columns).",
+        ),
+    ),
+)
 class LocalSuppression(SDCMethod):
     """Suppress quasi-identifier cells until every record's masked class has size ``>= target_k``.
 

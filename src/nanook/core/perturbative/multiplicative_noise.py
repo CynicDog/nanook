@@ -18,7 +18,7 @@ import polars as pl
 
 from nanook._internal.rng import generator
 from nanook.core._base import SDCMethod
-from nanook.core._registry import register_method
+from nanook.core._schema import ParamSchema, schema
 from nanook.exceptions import MethodParameterError, UnsupportedDtypeError
 
 if TYPE_CHECKING:
@@ -27,7 +27,37 @@ if TYPE_CHECKING:
 __all__ = ["MultiplicativeNoise"]
 
 
-@register_method
+@schema(
+    display_name="Multiplicative Noise",
+    category="Perturbative",
+    applicable_dtypes=("NUMERIC",),
+    description=(
+        "Scale each non-zero value by an independent log-normal multiplier, "
+        "then rescale to restore the original mean and variance. Suits strictly "
+        "positive columns where additive noise would create impossible negatives."
+    ),
+    params=(
+        ParamSchema(
+            name="sigma_log",
+            display_name="Sigma (log)",
+            param_type="FLOAT",
+            default=0.1,
+            required=True,
+            description=(
+                "Standard deviation of the underlying normal. Typical range "
+                "[0.05, 0.25]; 0.0 short-circuits to identity."
+            ),
+        ),
+        ParamSchema(
+            name="seed",
+            display_name="Random Seed",
+            param_type="INT",
+            default=None,
+            required=False,
+            description="Optional integer seed for reproducibility.",
+        ),
+    ),
+)
 class MultiplicativeNoise(SDCMethod):
     """Scale ``self.column`` by a log-normal multiplier, then rescale to restore the first two moments.
 

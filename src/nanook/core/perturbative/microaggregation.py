@@ -17,7 +17,7 @@ import numpy as np
 import polars as pl
 
 from nanook.core._base import SDCMethod
-from nanook.core._registry import register_method
+from nanook.core._schema import ParamSchema, schema
 from nanook.exceptions import MethodParameterError, UnsupportedDtypeError
 
 if TYPE_CHECKING:
@@ -26,7 +26,37 @@ if TYPE_CHECKING:
 __all__ = ["Microaggregation"]
 
 
-@register_method
+@schema(
+    display_name="Microaggregation",
+    category="Perturbative",
+    applicable_dtypes=("NUMERIC",),
+    description=(
+        "Cluster records into groups of at least k via MDAV (Maximum Distance "
+        "to Average Vector) and replace each cell with its cluster mean. "
+        "Mean-replacement guarantees k-anonymity on the microaggregated columns."
+    ),
+    params=(
+        ParamSchema(
+            name="k",
+            display_name="Cluster Size (k)",
+            param_type="INT",
+            default=5,
+            required=True,
+            description="Minimum cluster size (>= 2).",
+        ),
+        ParamSchema(
+            name="columns",
+            display_name="Additional Columns",
+            param_type="LIST",
+            default=None,
+            required=False,
+            description=(
+                "Optional explicit numeric column list overriding the rule's "
+                "single column. Used for multivariate MDAV."
+            ),
+        ),
+    ),
+)
 class Microaggregation(SDCMethod):
     """Replace each value with the mean of its k-nearest-neighbour cluster (MDAV).
 

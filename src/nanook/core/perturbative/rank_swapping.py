@@ -16,7 +16,7 @@ import polars as pl
 
 from nanook._internal.rng import generator
 from nanook.core._base import SDCMethod
-from nanook.core._registry import register_method
+from nanook.core._schema import ParamSchema, schema
 from nanook.exceptions import MethodParameterError, UnsupportedDtypeError
 
 if TYPE_CHECKING:
@@ -25,7 +25,37 @@ if TYPE_CHECKING:
 __all__ = ["RankSwapping"]
 
 
-@register_method
+@schema(
+    display_name="Rank Swapping",
+    category="Perturbative",
+    applicable_dtypes=("NUMERIC",),
+    description=(
+        "Sort the column, then swap each value with another whose rank lies "
+        "within ``window_pct`` of its own. Preserves the marginal distribution "
+        "exactly while bounding the perturbation in rank space."
+    ),
+    params=(
+        ParamSchema(
+            name="window_pct",
+            display_name="Rank Window",
+            param_type="FLOAT",
+            default=0.05,
+            required=True,
+            description=(
+                "Half-width of the swap window as a fraction of n (e.g. 0.05 "
+                "allows swaps within ±5% of the rank position)."
+            ),
+        ),
+        ParamSchema(
+            name="seed",
+            display_name="Random Seed",
+            param_type="INT",
+            default=None,
+            required=False,
+            description="Optional integer seed for reproducibility.",
+        ),
+    ),
+)
 class RankSwapping(SDCMethod):
     """Swap each value with a neighbour whose rank lies within ``window_pct`` percent.
 

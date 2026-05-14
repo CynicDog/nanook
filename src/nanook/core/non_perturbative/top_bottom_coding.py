@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 
 from nanook.core._base import SDCMethod
-from nanook.core._registry import register_method
+from nanook.core._schema import ParamSchema, schema
 from nanook.exceptions import MethodParameterError, UnsupportedDtypeError
 
 if TYPE_CHECKING:
@@ -23,7 +23,42 @@ if TYPE_CHECKING:
 __all__ = ["TopBottomCoding"]
 
 
-@register_method
+@schema(
+    display_name="Top/Bottom Coding",
+    category="Non-perturbative",
+    applicable_dtypes=("NUMERIC",),
+    description=(
+        "Clip values beyond percentile thresholds computed across the full column. "
+        "The interior of the distribution stays exact; only the tails collapse to "
+        "the threshold boundary."
+    ),
+    params=(
+        ParamSchema(
+            name="percentile",
+            display_name="Percentile",
+            param_type="FLOAT",
+            default=5.0,
+            required=True,
+            description=(
+                "Total percentage of mass to clip, in (0, 100). With both tails "
+                "selected, it splits equally above and below."
+            ),
+        ),
+        ParamSchema(
+            name="alternative",
+            display_name="Side",
+            param_type="CODE",
+            default="two_sided",
+            required=False,
+            code_options=(
+                {"value": "two_sided", "label": "Both tails"},
+                {"value": "less", "label": "Lower tail"},
+                {"value": "greater", "label": "Upper tail"},
+            ),
+            description="Which tail(s) of the distribution to clip.",
+        ),
+    ),
+)
 class TopBottomCoding(SDCMethod):
     """Clip ``self.column`` to ``[lower, upper]`` percentile bounds derived during pre-scan.
 

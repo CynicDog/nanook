@@ -16,5 +16,15 @@ from nanook.core import non_perturbative as _non_perturbative  # noqa: F401
 from nanook.core import perturbative as _perturbative  # noqa: F401
 from nanook.core._base import SDCMethod
 from nanook.core._registry import METHOD_REGISTRY, get_method, register_method
+from nanook.core._schema import MethodSchema, ParamSchema, list_method_schemas, schema
 
-__all__ = ["METHOD_REGISTRY", "SDCMethod", "get_method", "register_method"]
+__all__ = [
+    "METHOD_REGISTRY",
+    "MethodSchema",
+    "ParamSchema",
+    "SDCMethod",
+    "get_method",
+    "list_method_schemas",
+    "register_method",
+    "schema",
+]

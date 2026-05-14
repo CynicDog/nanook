@@ -15,7 +15,7 @@ import polars as pl
 
 from nanook._internal.rng import generator
 from nanook.core._base import SDCMethod
-from nanook.core._registry import register_method
+from nanook.core._schema import ParamSchema, schema
 from nanook.exceptions import MethodParameterError, UnsupportedDtypeError
 
 if TYPE_CHECKING:
@@ -24,7 +24,44 @@ if TYPE_CHECKING:
 __all__ = ["Rounding"]
 
 
-@register_method
+@schema(
+    display_name="Rounding",
+    category="Perturbative",
+    applicable_dtypes=("NUMERIC",),
+    description=(
+        "Snap each value to a multiple of ``base``. Optionally jitter inside the "
+        "bin to preserve shape rather than collapsing every cell to the centre."
+    ),
+    params=(
+        ParamSchema(
+            name="base",
+            display_name="Bin Size",
+            param_type="FLOAT",
+            default=10.0,
+            required=True,
+            description="Positive bin width; values snap to round(x / base) · base.",
+        ),
+        ParamSchema(
+            name="random_within_bin",
+            display_name="Jitter Inside Bin",
+            param_type="BOOL",
+            default="false",
+            required=False,
+            description=(
+                "When true, draw the rounded value uniformly inside the bin "
+                "instead of snapping to its centre. Requires a seed for reproducibility."
+            ),
+        ),
+        ParamSchema(
+            name="seed",
+            display_name="Random Seed",
+            param_type="INT",
+            default=None,
+            required=False,
+            description="Optional integer seed for reproducibility.",
+        ),
+    ),
+)
 class Rounding(SDCMethod):
     """Round ``self.column`` to a multiple of ``base``.
 

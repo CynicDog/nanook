@@ -30,7 +30,7 @@ import polars as pl
 from nanook._internal import categorical_mdav, raking
 from nanook._internal.rng import generator
 from nanook.core._base import SDCMethod
-from nanook.core._registry import register_method
+from nanook.core._schema import ParamSchema, schema
 from nanook.exceptions import MethodParameterError
 
 if TYPE_CHECKING:
@@ -39,7 +39,53 @@ if TYPE_CHECKING:
 __all__ = ["MASSC"]
 
 
-@register_method
+@schema(
+    display_name="MASSC",
+    category="Perturbative",
+    applicable_dtypes=("ANY",),
+    description=(
+        "Four-step (Micro-Agglomeration, Substitution, Subsampling, Calibration) "
+        "categorical protection on the configured identifier columns. Drops rows "
+        "and appends a calibration-weight column; utility metrics that assume "
+        "equal-sized frames are not meaningful against this output."
+    ),
+    params=(
+        ParamSchema(
+            name="k",
+            display_name="Cluster Size (k)",
+            param_type="INT",
+            default=5,
+            required=True,
+            description="Minimum cluster size for micro-agglomeration (>= 2).",
+        ),
+        ParamSchema(
+            name="f_sub",
+            display_name="Subsample Fraction",
+            param_type="FLOAT",
+            default=0.8,
+            required=True,
+            description="Fraction of rows to retain after subsampling, in (0, 1].",
+        ),
+        ParamSchema(
+            name="calibration_vars",
+            display_name="Calibration Variables",
+            param_type="LIST",
+            default=None,
+            required=False,
+            description=(
+                "Columns to calibrate the weighted marginals on. Defaults to the identifier list when empty."
+            ),
+        ),
+        ParamSchema(
+            name="seed",
+            display_name="Random Seed",
+            param_type="INT",
+            default=None,
+            required=False,
+            description="Optional integer seed for reproducibility.",
+        ),
+    ),
+)
 class MASSC(SDCMethod):
     """Run the canonical four-step MASSC on the context's quasi-identifiers.
 

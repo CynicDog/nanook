@@ -15,7 +15,7 @@ import polars as pl
 
 from nanook._internal.rng import generator
 from nanook.core._base import SDCMethod
-from nanook.core._registry import register_method
+from nanook.core._schema import ParamSchema, schema
 from nanook.exceptions import MethodParameterError, UnsupportedDtypeError
 
 if TYPE_CHECKING:
@@ -24,7 +24,36 @@ if TYPE_CHECKING:
 __all__ = ["NoiseAddition"]
 
 
-@register_method
+@schema(
+    display_name="Noise Addition",
+    category="Perturbative",
+    applicable_dtypes=("NUMERIC",),
+    description=(
+        "Add zero-mean Gaussian noise scaled to the column's standard deviation. "
+        "Intensity is unit-free: 0.10 always means ±10% of σ regardless of "
+        "whether the column is currency or counts."
+    ),
+    params=(
+        ParamSchema(
+            name="intensity",
+            display_name="Intensity",
+            param_type="FLOAT",
+            default=0.1,
+            required=True,
+            description=(
+                "Noise scale as a fraction of column σ. Typical: 0.05 (light), 0.10 (moderate), 0.20 (heavy)."
+            ),
+        ),
+        ParamSchema(
+            name="seed",
+            display_name="Random Seed",
+            param_type="INT",
+            default=None,
+            required=False,
+            description="Optional integer seed for reproducibility.",
+        ),
+    ),
+)
 class NoiseAddition(SDCMethod):
     """Add ``N(0, intensity · σ)`` noise to ``self.column``; numeric only.
 

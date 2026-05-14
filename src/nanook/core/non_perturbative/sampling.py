@@ -17,7 +17,7 @@ import polars as pl
 
 from nanook._internal.rng import generator
 from nanook.core._base import SDCMethod
-from nanook.core._registry import register_method
+from nanook.core._schema import ParamSchema, schema
 from nanook.exceptions import MethodParameterError
 
 if TYPE_CHECKING:
@@ -26,7 +26,42 @@ if TYPE_CHECKING:
 __all__ = ["Sampling"]
 
 
-@register_method
+@schema(
+    display_name="Sampling",
+    category="Non-perturbative",
+    applicable_dtypes=("ANY",),
+    description=(
+        "Release a random subset of records via independent Bernoulli draws. "
+        "Optionally append a Horvitz-Thompson weight column ``_nk_weight`` for "
+        "unbiased downstream estimation."
+    ),
+    params=(
+        ParamSchema(
+            name="fraction",
+            display_name="Inclusion Probability",
+            param_type="FLOAT",
+            default=0.5,
+            required=True,
+            description=("Per-record inclusion probability, in (0, 1]. 1.0 keeps every row."),
+        ),
+        ParamSchema(
+            name="seed",
+            display_name="Random Seed",
+            param_type="INT",
+            default=None,
+            required=False,
+            description="Optional integer seed for reproducibility.",
+        ),
+        ParamSchema(
+            name="write_weights",
+            display_name="Emit HT Weights",
+            param_type="BOOL",
+            default="false",
+            required=False,
+            description=("When true, append ``_nk_weight = 1 / fraction`` to the output frame."),
+        ),
+    ),
+)
 class Sampling(SDCMethod):
     """Independent Bernoulli sampling with optional Horvitz-Thompson weight emission.
 

@@ -17,7 +17,7 @@ import polars as pl
 
 from nanook._internal.rng import generator
 from nanook.core._base import SDCMethod
-from nanook.core._registry import register_method
+from nanook.core._schema import ParamSchema, schema
 from nanook.exceptions import MethodParameterError, UnsupportedDtypeError
 
 if TYPE_CHECKING:
@@ -26,7 +26,33 @@ if TYPE_CHECKING:
 __all__ = ["Resampling"]
 
 
-@register_method
+@schema(
+    display_name="Resampling",
+    category="Perturbative",
+    applicable_dtypes=("NUMERIC",),
+    description=(
+        "Smooth the column by averaging order statistics across ``b`` bootstrap "
+        "samples. Preserves rank order while smoothing tail uniqueness."
+    ),
+    params=(
+        ParamSchema(
+            name="b",
+            display_name="Bootstrap Samples",
+            param_type="INT",
+            default=10,
+            required=True,
+            description="Number of bootstrap samples (>= 1). Higher values smooth more.",
+        ),
+        ParamSchema(
+            name="seed",
+            display_name="Random Seed",
+            param_type="INT",
+            default=None,
+            required=False,
+            description="Optional integer seed for reproducibility.",
+        ),
+    ),
+)
 class Resampling(SDCMethod):
     """Smooth ``self.column`` via averaging order statistics across bootstrap samples.
 
