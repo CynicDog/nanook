@@ -137,6 +137,10 @@ class Pipeline:
             params["mapping"] = dict(mapping)
         return self.step("global_recoding", column=column, **params)
 
+    def suppression(self, column: str) -> Self:
+        """Drop ``column`` from the output. The strongest non-perturbative treatment."""
+        return self.step("suppression", column=column)
+
     def local_suppression(self, *, target_k: int = 5, cost_priority: dict | None = None) -> Self:
         """Add a local-suppression step targeting ``target_k`` over the context's quasi-identifiers."""
         return self.step(
@@ -293,7 +297,11 @@ class Pipeline:
         """
         if protected is None:
             protected = original
-        self.context_.validate(protected)
+        # Validate against ``original``: the context describes the input's roles.
+        # ``protected`` may be missing columns that a step intentionally dropped
+        # (e.g. ``suppression``), and that's expected — _assess_risk filters those
+        # out so the risk view reflects what's actually still releasable.
+        self.context_.validate(original)
 
         risk = _assess_risk(protected, self.context_, k=k, l=l, t=t, l_mode=l_mode)
         utility = _assess_utility(original, protected)
@@ -309,15 +317,18 @@ def _assess_risk(
     t: float,
     l_mode: str,
 ) -> RiskReport:
-    qis = list(ctx.quasi_identifiers)
+    # Skip QIs/sensitive columns the protected frame no longer carries (e.g. dropped
+    # by ``suppression``) — they cannot contribute re-identification signal once gone.
+    qis = [q for q in ctx.quasi_identifiers if q in df.columns]
     if not qis:
         return RiskReport()
 
     k_rep = k_anonymity(df, qis=qis, k=k)
     l_rep = None
     t_rep = None
-    if ctx.sensitive:
-        sensitive_col = ctx.sensitive[0]
+    sensitive_present = [s for s in ctx.sensitive if s in df.columns]
+    if sensitive_present:
+        sensitive_col = sensitive_present[0]
         l_rep = l_diversity(df, qis=qis, sensitive=sensitive_col, l=l, mode=l_mode)  # type: ignore[arg-type]
         if df.schema[sensitive_col].is_numeric():
             t_rep = t_closeness(df, qis=qis, sensitive=sensitive_col, t=t)
