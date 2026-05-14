@@ -76,3 +76,22 @@ def test_assess_with_all_qis_dropped_yields_empty_risk(adult_small):
     protected = p.apply(adult_small)
     report = p.assess(adult_small, protected)
     assert report.risk.k_anonymity is None
+
+
+def test_suppression_then_local_suppression_succeeds(adult_small):
+    # Regression: prior to narrowing the per-step context, local_suppression's
+    # pre_scan ran ``df.select(context.qis)`` against a frame already missing the
+    # suppressed column and raised ColumnNotFoundError.
+    p = (
+        Pipeline()
+        .context(quasi_identifiers=["age", "zip", "sex"], sensitive=["diagnosis"])
+        .suppression("age")
+        .local_suppression(target_k=2)
+    )
+    protected = p.apply(adult_small)
+    assert "age" not in protected.columns
+    assert set(protected.columns) >= {"zip", "sex", "diagnosis"}
+
+    report = p.assess(adult_small, protected, k=2)
+    assert report.risk.k_anonymity is not None
+    assert report.risk.k_anonymity.qis == ("zip", "sex")

@@ -269,8 +269,14 @@ class Pipeline:
             if effective_params.get("seed") is None and ss is not None:
                 effective_params["seed"] = int(ss.generate_state(1, dtype=np.uint32)[0])
             instance = cls(column=step.column, params=effective_params)
-            params = instance.pre_scan(out, self.context_) if cls.requires_pre_scan else {}
-            out = instance.apply(out, self.context_, params)
+            # Narrow the context to columns still present in ``out``: prior
+            # column-drop steps (e.g. ``suppression``) may have removed QIs the
+            # pipeline-level context still names. Context-driven methods such as
+            # ``local_suppression``/``massc`` do ``df.select(context.qis)``, so
+            # they would otherwise raise ColumnNotFoundError on the dropped column.
+            step_ctx = _restrict_context_to_frame(self.context_, out)
+            params = instance.pre_scan(out, step_ctx) if cls.requires_pre_scan else {}
+            out = instance.apply(out, step_ctx, params)
         return out
 
     def assess(
@@ -306,6 +312,27 @@ class Pipeline:
         risk = _assess_risk(protected, self.context_, k=k, l=l, t=t, l_mode=l_mode)
         utility = _assess_utility(original, protected)
         return AssessmentReport(risk=risk, utility=utility)
+
+
+def _restrict_context_to_frame(ctx: DataContext, df: pl.DataFrame) -> DataContext:
+    """Return a context whose role-bearing columns all exist in ``df``.
+
+    Identity when nothing was dropped; otherwise QIs, sensitive columns, and
+    ``weights`` missing from ``df`` are filtered out. Used by `Pipeline.apply`
+    to thread a coherent context through column-drop steps.
+    """
+    present = set(df.columns)
+    qis = tuple(q for q in ctx.quasi_identifiers if q in present)
+    sensitive = tuple(s for s in ctx.sensitive if s in present)
+    weights = ctx.weights if ctx.weights in present else None
+    if qis == ctx.quasi_identifiers and sensitive == ctx.sensitive and weights == ctx.weights:
+        return ctx
+    return DataContext(
+        quasi_identifiers=qis,
+        sensitive=sensitive,
+        weights=weights,
+        hierarchy=ctx.hierarchy,
+    )
 
 
 def _assess_risk(
