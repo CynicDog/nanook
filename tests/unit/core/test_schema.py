@@ -56,6 +56,8 @@ def test_catalogue_entries_have_expected_keys() -> None:
             "applicableTypes",
             "requiresPreScan",
             "dropsColumn",
+            "requiresQuasiIdentifiers",
+            "requiresSensitive",
             "description",
             "params",
         }
@@ -69,3 +71,17 @@ def test_catalogue_entries_have_expected_keys() -> None:
                 "required",
                 "description",
             }
+
+
+def test_quasi_identifier_required_for_qi_methods() -> None:
+    qi_required = {
+        entry["code"] for entry in list_method_schemas() if entry["requiresQuasiIdentifiers"]
+    }
+    assert qi_required == {"massc", "local_suppression"}
+
+
+def test_no_method_currently_requires_sensitive() -> None:
+    sensitive_required = {
+        entry["code"] for entry in list_method_schemas() if entry["requiresSensitive"]
+    }
+    assert sensitive_required == set()

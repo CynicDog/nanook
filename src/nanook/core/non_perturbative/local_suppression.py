@@ -27,6 +27,7 @@ __all__ = ["LocalSuppression"]
     display_name="Local Suppression",
     category="Non-perturbative",
     applicable_dtypes=("ANY",),
+    requires_quasi_identifiers=True,
     description=(
         "Null cells in the configured identifier columns until every record's "
         "masked equivalence class has at least ``target_k`` members. The rule "

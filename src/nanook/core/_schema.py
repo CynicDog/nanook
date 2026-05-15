@@ -58,6 +58,8 @@ class MethodSchema:
     drops_column: bool
     description: str
     params: tuple[ParamSchema, ...] = field(default_factory=tuple)
+    requires_quasi_identifiers: bool = False
+    requires_sensitive: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -67,6 +69,8 @@ class MethodSchema:
             "applicableTypes": list(self.applicable_dtypes),
             "requiresPreScan": self.requires_pre_scan,
             "dropsColumn": self.drops_column,
+            "requiresQuasiIdentifiers": self.requires_quasi_identifiers,
+            "requiresSensitive": self.requires_sensitive,
             "description": self.description,
             "params": [_param_to_dict(p) for p in self.params],
         }
@@ -91,12 +95,19 @@ def schema(
     applicable_dtypes: Sequence[str],
     description: str,
     params: Sequence[ParamSchema] = (),
+    requires_quasi_identifiers: bool = False,
+    requires_sensitive: bool = False,
 ) -> Callable[[type[SDCMethod]], type[SDCMethod]]:
     """Attach a :class:`MethodSchema` to ``cls`` and register it.
 
     Replaces :func:`register_method` at the call site. The decorator reads
     ``cls.name``, ``cls.requires_pre_scan``, and ``cls.drops_column`` directly,
     so those class attributes must already be set when the decorator runs.
+
+    ``requires_quasi_identifiers`` / ``requires_sensitive`` mirror the
+    invariants the method enforces in ``pre_scan`` / ``apply``: methods that
+    operate on the QI tuple (e.g. ``massc``, ``local_suppression``) must set
+    the QI flag so callers can gate the UI before the engine rejects the run.
     """
 
     def decorate(cls: type[SDCMethod]) -> type[SDCMethod]:
@@ -111,6 +122,8 @@ def schema(
             drops_column=cls.drops_column,
             description=description,
             params=tuple(params),
+            requires_quasi_identifiers=requires_quasi_identifiers,
+            requires_sensitive=requires_sensitive,
         )
         return register_method(cls)
 
@@ -133,6 +146,8 @@ def list_method_schemas() -> list[dict[str, Any]]:
                     "applicableTypes": [],
                     "requiresPreScan": cls.requires_pre_scan,
                     "dropsColumn": cls.drops_column,
+                    "requiresQuasiIdentifiers": False,
+                    "requiresSensitive": False,
                     "description": (cls.__doc__ or "").strip().split("\n", 1)[0],
                     "params": [],
                 }
