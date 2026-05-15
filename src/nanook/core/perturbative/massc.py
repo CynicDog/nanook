@@ -196,17 +196,35 @@ class MASSC(SDCMethod):
         weights = params["weights"]
         weights_col = params["weights_col"]
 
+        # Round-tripping through numpy loses dtype fidelity: `to_numpy()` on
+        # Categorical / String / null-bearing narrow-int columns returns object
+        # (or NaN-padded float) arrays that Polars can't cast back to the
+        # original schema. Use Polars-native gather for non-QI columns and a
+        # String intermediate for Categorical QI reconstruction so all dtypes
+        # round-trip cleanly.
+        perm_list = row_permutation.tolist()
         substituted = df
         for c in qis:
-            substituted = substituted.with_columns(pl.Series(c, qi_representative[c], dtype=df.schema[c]))
-        for c in non_qi_cols:
-            original = df.get_column(c).to_numpy()
             substituted = substituted.with_columns(
-                pl.Series(c, original[row_permutation], dtype=df.schema[c])
+                _reconstruct_qi_series(c, qi_representative[c], df.schema[c])
             )
+        for c in non_qi_cols:
+            substituted = substituted.with_columns(df.get_column(c).gather(perm_list).alias(c))
 
         out = substituted[sub_idx.tolist()]
         return out.with_columns(pl.Series(weights_col, weights, dtype=pl.Float64))
+
+
+def _reconstruct_qi_series(name: str, values: list, target_dtype: pl.DataType) -> pl.Series:
+    """Build a Polars Series from a Python list, preserving ``target_dtype``.
+
+    `pl.Series(name, values, dtype=Categorical)` routes through Polars' Object
+    dtype, which cannot cast to Categorical. Reconstruct via a String
+    intermediate so the cluster-mode round-trip survives Categorical QIs.
+    """
+    if isinstance(target_dtype, pl.Categorical):
+        return pl.Series(name, values, dtype=pl.String).cast(target_dtype, strict=False)
+    return pl.Series(name, values, dtype=target_dtype, strict=False)
 
 
 def _encode_qi_codes(df: pl.DataFrame, qis: list[str]) -> np.ndarray:

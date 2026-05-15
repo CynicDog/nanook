@@ -227,6 +227,54 @@ def test_massc_weights_sum_to_population_total_per_calibration_cell():
         assert abs(weighted_total - target) < 1e-6
 
 
+def test_massc_preserves_categorical_and_null_dtypes_in_non_qi_cols():
+    # Earlier versions of MASSC round-tripped non-QI columns through
+    # `Series.to_numpy()`, which silently lost dtype fidelity for Categorical
+    # columns (object dtype) and null-bearing narrow integers (NaN-padded
+    # float). Reconstruction then failed with `cannot cast 'Object' type`.
+    df = pl.DataFrame(
+        {
+            "qi": (["a"] * 30 + ["b"] * 30),
+            "cat_with_nulls": pl.Series(
+                [None if i % 7 == 0 else ("x" if i % 2 == 0 else "y") for i in range(60)],
+                dtype=pl.Categorical,
+            ),
+            "small_int_with_nulls": pl.Series(
+                [None if i % 5 == 0 else i % 4 for i in range(60)],
+                dtype=pl.Int8,
+            ),
+            "str_with_nulls": pl.Series(
+                [None if i % 6 == 0 else f"r{i}" for i in range(60)],
+                dtype=pl.String,
+            ),
+        }
+    )
+    ctx = DataContext(quasi_identifiers=["qi"])
+    m, fitted = _fit("massc", column=None, params={"k": 5, "f_sub": 1.0, "seed": 0}, df=df, ctx=ctx)
+    out = m.apply(df, ctx, fitted)
+    assert out.schema["cat_with_nulls"] == df.schema["cat_with_nulls"]
+    assert out.schema["small_int_with_nulls"] == df.schema["small_int_with_nulls"]
+    assert out.schema["str_with_nulls"] == df.schema["str_with_nulls"]
+
+
+def test_massc_preserves_categorical_qi_dtype():
+    # The QI reconstruction path also round-trips through a Python list — the
+    # Categorical case needs a String intermediate or Polars rejects the cast.
+    df = pl.DataFrame(
+        {
+            "cat_qi": pl.Series(
+                [("x" if i % 2 == 0 else "y") for i in range(60)],
+                dtype=pl.Categorical,
+            ),
+            "other": list(range(60)),
+        }
+    )
+    ctx = DataContext(quasi_identifiers=["cat_qi"])
+    m, fitted = _fit("massc", column=None, params={"k": 5, "f_sub": 1.0, "seed": 0}, df=df, ctx=ctx)
+    out = m.apply(df, ctx, fitted)
+    assert out.schema["cat_qi"] == df.schema["cat_qi"]
+
+
 def test_massc_substitution_breaks_qi_linkage():
     # On a seeded run, the substitution should overwrite the QI tuple for a
     # nontrivial share of records — they shouldn't all reproduce the original
