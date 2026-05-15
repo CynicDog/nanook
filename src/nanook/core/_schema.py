@@ -60,6 +60,7 @@ class MethodSchema:
     params: tuple[ParamSchema, ...] = field(default_factory=tuple)
     requires_quasi_identifiers: bool = False
     requires_sensitive: bool = False
+    is_pipeline_scope: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +72,7 @@ class MethodSchema:
             "dropsColumn": self.drops_column,
             "requiresQuasiIdentifiers": self.requires_quasi_identifiers,
             "requiresSensitive": self.requires_sensitive,
+            "isPipelineScope": self.is_pipeline_scope,
             "description": self.description,
             "params": [_param_to_dict(p) for p in self.params],
         }
@@ -97,6 +99,7 @@ def schema(
     params: Sequence[ParamSchema] = (),
     requires_quasi_identifiers: bool = False,
     requires_sensitive: bool = False,
+    is_pipeline_scope: bool = False,
 ) -> Callable[[type[SDCMethod]], type[SDCMethod]]:
     """Attach a :class:`MethodSchema` to ``cls`` and register it.
 
@@ -108,6 +111,11 @@ def schema(
     invariants the method enforces in ``pre_scan`` / ``apply``: methods that
     operate on the QI tuple (e.g. ``massc``, ``local_suppression``) must set
     the QI flag so callers can gate the UI before the engine rejects the run.
+
+    ``is_pipeline_scope`` is a UI-facing hint: when ``True``, the step has no
+    meaningful per-column placement — the engine ignores the step's ``column``
+    field and operates on context columns instead. Studios should surface such
+    methods at the pipeline level, not in a per-column rule selector.
     """
 
     def decorate(cls: type[SDCMethod]) -> type[SDCMethod]:
@@ -124,6 +132,7 @@ def schema(
             params=tuple(params),
             requires_quasi_identifiers=requires_quasi_identifiers,
             requires_sensitive=requires_sensitive,
+            is_pipeline_scope=is_pipeline_scope,
         )
         return register_method(cls)
 
@@ -148,6 +157,7 @@ def list_method_schemas() -> list[dict[str, Any]]:
                     "dropsColumn": cls.drops_column,
                     "requiresQuasiIdentifiers": False,
                     "requiresSensitive": False,
+                    "isPipelineScope": False,
                     "description": (cls.__doc__ or "").strip().split("\n", 1)[0],
                     "params": [],
                 }

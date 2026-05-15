@@ -58,6 +58,7 @@ def test_catalogue_entries_have_expected_keys() -> None:
             "dropsColumn",
             "requiresQuasiIdentifiers",
             "requiresSensitive",
+            "isPipelineScope",
             "description",
             "params",
         }
@@ -85,3 +86,8 @@ def test_no_method_currently_requires_sensitive() -> None:
         entry["code"] for entry in list_method_schemas() if entry["requiresSensitive"]
     }
     assert sensitive_required == set()
+
+
+def test_pipeline_scope_matches_qi_required_today() -> None:
+    pipeline_scope = {entry["code"] for entry in list_method_schemas() if entry["isPipelineScope"]}
+    assert pipeline_scope == {"massc", "local_suppression"}

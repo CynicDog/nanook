@@ -44,6 +44,7 @@ __all__ = ["MASSC"]
     category="Perturbative",
     applicable_dtypes=("ANY",),
     requires_quasi_identifiers=True,
+    is_pipeline_scope=True,
     description=(
         "Four-step (Micro-Agglomeration, Substitution, Subsampling, Calibration) "
         "categorical protection on the configured identifier columns. Drops rows "
